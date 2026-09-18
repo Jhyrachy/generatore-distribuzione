@@ -92,6 +92,10 @@ clic: non ci sono risorse esterne da caricare.
   guadagno di verosimiglianza giustifica il parametro in più.
 - La statistica KS è la distanza massima tra cumulativa empirica e teorica:
   sotto 0.1 l'adattamento è buono, sopra 0.2 conviene passare alla KDE.
+- Le tacche di entrambi gli assi cadono su valori tondi (passi 1, 2 o 5 per
+  potenza di dieci), con tante cifre decimali quante ne richiede il passo: su
+  dati fra 4.5 e 25.3 l'asse mostra 5, 10, 15, 20, 25; su dati fra 0.008 e 0.041
+  mostra 0.01, 0.02, 0.03, 0.04.
 - Per la KDE la KS è calcolata su un sottoinsieme delle statistiche d'ordine,
   perché la sua cumulativa costa O(n) per ogni valutazione.
 - La ripulitura dell'input non sa distinguere un separatore delle migliaia da un

@@ -679,6 +679,28 @@ function ticksTondi(max, quanti, interi){
   return t;
 }
 
+// Come ticksTondi, ma su un intervallo che non parte da zero: serve all'asse
+// orizzontale, dove gli estremi sono il minimo e il massimo dei dati e dividere
+// in parti uguali darebbe tacche su valori arbitrari (3.67, 8.16, 12.65...).
+function ticksIntervallo(da, a, quanti){
+  const ampiezza = a - da;
+  if (!(ampiezza > 0) || !isFinite(ampiezza)) return { valori: [da], decimali: 2 };
+  const grezzo = ampiezza / quanti;
+  const mag = Math.pow(10, Math.floor(Math.log10(grezzo)));
+  const norm = grezzo / mag;
+  const passo = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  // Cifre decimali giuste per il passo scelto: 5 -> 0, 0.2 -> 1, 0.05 -> 2.
+  const decimali = Math.max(0, -Math.floor(Math.log10(passo)));
+  const primo = Math.ceil(da / passo - 1e-9) * passo;
+  const valori = [];
+  for (let i = 0; primo + i * passo <= a + passo * 1e-9; i++){
+    valori.push(primo + i * passo);
+  }
+  // Intervallo troppo stretto per una tacca tonda: si ripiega sugli estremi.
+  if (valori.length < 2) return { valori: [da, a], decimali: decimali + 1 };
+  return { valori, decimali };
+}
+
 function disegnaDensita(svg, s, modello, generati){
   const W = 660, H = 330;
   const M = { l: 56, r: 16, t: 18, b: 56 };
@@ -768,12 +790,13 @@ function disegnaDensita(svg, s, modello, generati){
     out += `<path d="${pc}" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
 
-  // Asse orizzontale con valori tondi.
+  // Asse orizzontale su valori tondi.
   out += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" stroke="var(--line)" stroke-width="1"/>`;
-  for (let i = 0; i <= 5; i++){
-    const v = lo + (hi - lo) * i / 5, x = sx(v);
+  const tx = ticksIntervallo(lo, hi, 5);
+  for (const v of tx.valori){
+    const x = sx(v);
     out += `<line x1="${x.toFixed(2)}" y1="${y0}" x2="${x.toFixed(2)}" y2="${y0 + 4}" stroke="var(--line)" stroke-width="1"/>`;
-    out += `<text x="${x.toFixed(2)}" y="${y0 + 18}" text-anchor="middle" font-size="10.5" fill="var(--muted)" font-family="var(--mono)">${esc(fmt(v, 2))}</text>`;
+    out += `<text x="${x.toFixed(2)}" y="${y0 + 18}" text-anchor="middle" font-size="10.5" fill="var(--muted)" font-family="var(--mono)">${v.toFixed(tx.decimali)}</text>`;
   }
   out += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10.5" fill="var(--muted)">valore osservato</text>`;
 
@@ -837,9 +860,11 @@ function disegnaEcdf(svg, ordinatiA, ordinatiB){
   out += `<path d="${passo(ordinatiA)}" fill="none" stroke="var(--accent)" stroke-width="2" opacity=".85"/>`;
   out += `<path d="${passo(ordinatiB)}" fill="none" stroke="var(--accent2)" stroke-width="2" opacity=".85"/>`;
   out += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" stroke="var(--line)" stroke-width="1"/>`;
-  for (let i = 0; i <= 5; i++){
-    const v = (lo - m) + ((hi + m) - (lo - m)) * i / 5, x = sx(v);
-    out += `<text x="${x}" y="${y0 + 17}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="var(--mono)">${esc(fmt(v, 2))}</text>`;
+  const tx = ticksIntervallo(lo - m, hi + m, 5);
+  for (const v of tx.valori){
+    const x = sx(v);
+    out += `<line x1="${x.toFixed(2)}" y1="${y0}" x2="${x.toFixed(2)}" y2="${y0 + 4}" stroke="var(--line)" stroke-width="1"/>`;
+    out += `<text x="${x.toFixed(2)}" y="${y0 + 17}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="var(--mono)">${v.toFixed(tx.decimali)}</text>`;
   }
   svg.innerHTML = out;
 }
