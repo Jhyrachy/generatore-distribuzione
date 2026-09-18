@@ -17,6 +17,7 @@
     --accent-soft:#c0603c22;
     --accent2:#2f7d74;
     --accent2-soft:#2f7d7422;
+    --barra:#dad6cd;
     --radius:12px;
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
   }
@@ -26,6 +27,7 @@
       --line:#2d2c28; --line-soft:#232320;
       --accent:#e08560; --accent-soft:#e0856022;
       --accent2:#5cb3a8; --accent2-soft:#5cb3a822;
+      --barra:#36352f;
     }
   }
   *{box-sizing:border-box}
@@ -42,6 +44,8 @@
   header p{margin:0;color:var(--muted);max-width:62ch}
 
   .layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:26px;align-items:start}
+  /* senza questo le colonne non scendono sotto la larghezza intrinseca della textarea */
+  .layout > div{min-width:0}
   @media (max-width:880px){.layout{grid-template-columns:1fr}}
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
@@ -55,7 +59,7 @@
     padding:9px 11px;font-size:.9rem;font-family:inherit;
     transition:border-color .15s,box-shadow .15s;
   }
-  textarea{font-family:var(--mono);font-size:.84rem;resize:vertical;line-height:1.5}
+  textarea{font-family:var(--mono);font-size:.84rem;resize:vertical;line-height:1.5;min-width:0}
   textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
   select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:32px}
   .hint{font-size:.76rem;color:var(--muted);margin-top:6px}
@@ -94,6 +98,7 @@
   .legend span{display:flex;align-items:center;gap:6px}
   .swatch{width:11px;height:11px;border-radius:3px;display:inline-block}
 
+  .scorri{overflow-x:auto;margin:0 -4px;padding:0 4px}
   table{width:100%;border-collapse:collapse;font-size:.85rem}
   th{text-align:left;font-weight:500;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 10px 8px;border-bottom:1px solid var(--line)}
   td{padding:9px 10px;border-bottom:1px solid var(--line-soft)}
@@ -131,8 +136,9 @@
       <div class="field">
         <label for="dati">Valori osservati</label>
         <textarea id="dati" rows="11" spellcheck="false" placeholder="12.4&#10;9.8&#10;15.1&#10;&#8230;"></textarea>
-        <div class="hint">Separati da a capo, spazi, virgole o punti e virgola. La virgola decimale viene riconosciuta.</div>
+        <div class="hint">Separati da a capo, spazi, virgole o punti e virgola. La virgola decimale viene riconosciuta. Unità di misura ed etichette vengono ignorate.</div>
         <div id="errore-dati" class="error hidden"></div>
+        <div id="nota-dati" class="hint hidden"></div>
       </div>
       <div class="actions">
         <button class="primary" id="btn-analizza">Analizza</button>
@@ -190,18 +196,20 @@
 
       <section class="card">
         <figure>
-          <figcaption>Istogramma dei dati e densità del modello stimato</figcaption>
-          <svg id="gr-densita" viewBox="0 0 660 300" role="img" aria-label="Istogramma con densità stimata"></svg>
+          <figcaption>Quanti valori cadono in ogni classe, e la forma prevista dal modello. Passa il mouse sulle barre per i dettagli.</figcaption>
+          <svg id="gr-densita" viewBox="0 0 660 330" role="img" aria-label="Istogramma con densità stimata"></svg>
         </figure>
         <div class="legend">
-          <span><i class="swatch" style="background:var(--accent-soft);border:1px solid var(--accent)"></i> dati osservati</span>
+          <span><i class="swatch" style="background:var(--barra)"></i> dati osservati</span>
           <span><i class="swatch" style="background:var(--accent)"></i> densità stimata</span>
-          <span id="leg-gen" class="hidden"><i class="swatch" style="background:var(--accent2)"></i> numeri generati</span>
+          <span id="leg-gen" class="hidden"><i class="swatch" style="background:var(--accent2)"></i> numeri generati (riportati alla stessa numerosità)</span>
         </div>
+        <div id="nota-grafico" class="hint hidden" style="margin-top:8px"></div>
       </section>
 
       <section class="card">
         <h2>Confronto tra modelli</h2>
+        <div class="scorri">
         <table id="tabella">
           <thead>
             <tr>
@@ -210,6 +218,7 @@
           </thead>
           <tbody></tbody>
         </table>
+        </div>
         <div class="hint" style="margin-top:12px">
           <b>AIC</b>: più basso è meglio, penalizza i modelli con più parametri. <b>KS</b>: distanza massima tra la
           cumulativa empirica e quella del modello, più bassa è meglio. La stima empirica (KDE) segue sempre il profilo
@@ -582,24 +591,45 @@ function statistaKS(ordinati, cdf, maxPunti){
    5. Lettura e formattazione dei numeri
    ========================================================================== */
 
+// Riconosce i numeri e scarta tutto il resto (unità di misura, etichette,
+// simboli di valuta). Quel che viene buttato via viene però dichiarato:
+// una ripulitura silenziosa nasconderebbe errori di battitura.
+const RE_NUMERO = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
+
 function leggiValori(testo){
   const t = testo.trim();
-  if (!t) return { valori: [], decimali: 0 };
-  // Se compare una virgola tra due cifre e c'è un altro separatore, la virgola è decimale.
+  if (!t) return { valori: [], decimali: 0, scartati: [], attaccati: 0 };
+
+  // Se compare una virgola tra due cifre e c'è un altro separatore, la virgola
+  // è decimale; altrimenti separa i valori.
   const virgolaDecimale = /\d,\d/.test(t) && /[\n\r;\t ]/.test(t);
-  const normalizzato = virgolaDecimale ? t.replace(/,/g, '.') : t;
-  const pezzi = normalizzato.split(virgolaDecimale ? /[\s;]+/ : /[\s,;]+/);
+  const norm = virgolaDecimale ? t.replace(/,/g, '.') : t.replace(/,/g, ' ');
+
   const valori = [];
-  let decimali = 0;
-  for (const p of pezzi){
-    if (!p) continue;
-    const v = Number(p);
-    if (!isFinite(v)) return { errore: 'Valore non numerico: "' + p.slice(0, 20) + '"' };
+  let decimali = 0, fine = 0, resto = '', attaccati = 0;
+  RE_NUMERO.lastIndex = 0;
+  let m;
+  while ((m = RE_NUMERO.exec(norm)) !== null){
+    const buco = norm.slice(fine, m.index);
+    // Due numeri senza nulla in mezzo: probabile separatore delle migliaia
+    // ("1.234.567") o testo appiccicato. Va segnalato.
+    if (valori.length > 0 && buco === '') attaccati++;
+    resto += buco;
+    fine = m.index + m[0].length;
+    const v = Number(m[0]);
+    if (!isFinite(v)) continue;
     valori.push(v);
-    const punto = p.indexOf('.');
-    if (punto >= 0) decimali = Math.max(decimali, p.length - punto - 1);
+    const punto = m[0].indexOf('.');
+    if (punto >= 0) decimali = Math.max(decimali, m[0].length - punto - 1);
   }
-  return { valori, decimali: Math.min(decimali, 8) };
+  resto += norm.slice(fine);
+
+  // Frammenti scartati, ripuliti dai separatori legittimi.
+  const scartati = [...new Set(
+    resto.split(/[\s;]+/).map(f => f.trim()).filter(f => f.length > 0)
+  )].slice(0, 6);
+
+  return { valori, decimali: Math.min(decimali, 8), scartati, attaccati };
 }
 
 function fmt(v, cifre){
@@ -623,109 +653,157 @@ function scala(dom0, dom1, ran0, ran1){
 
 function esc(s){ return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
 
-function istogramma(valori, bordi){
-  const conteggi = new Array(bordi.length - 1).fill(0);
+function conteggi(valori, bordi){
+  const c = new Array(bordi.length - 1).fill(0);
   const larghezza = bordi[1] - bordi[0];
   for (const v of valori){
     let i = Math.floor((v - bordi[0]) / larghezza);
-    if (i < 0 || i >= conteggi.length){
-      if (v === bordi[bordi.length - 1]) i = conteggi.length - 1; else continue;
+    if (i < 0 || i >= c.length){
+      if (v === bordi[bordi.length - 1]) i = c.length - 1; else continue;
     }
-    conteggi[i]++;
+    c[i]++;
   }
-  return conteggi.map(c => c / (valori.length * larghezza)); // densità
+  return c;
+}
+
+function ticksTondi(max, quanti, interi){
+  // Passi "belli" (1, 2, 5 x potenza di 10) invece di suddivisioni arbitrarie.
+  const grezzo = max / quanti;
+  const mag = Math.pow(10, Math.floor(Math.log10(grezzo || 1)));
+  const norm = (grezzo || 1) / mag;
+  let passo = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  if (interi) passo = Math.max(1, Math.round(passo));
+  const t = [];
+  for (let v = 0; v <= max + passo * 1e-9; v += passo) t.push(v);
+  if (t[t.length - 1] < max) t.push(t[t.length - 1] + passo);
+  return t;
 }
 
 function disegnaDensita(svg, s, modello, generati){
-  const W = 660, H = 300;
-  const x0 = ASSE.l, x1 = W - ASSE.r, y0 = H - ASSE.b, y1 = ASSE.t;
+  const W = 660, H = 330;
+  const M = { l: 56, r: 16, t: 18, b: 56 };
+  const x0 = M.l, x1 = W - M.r, y0 = H - M.b, y1 = M.t;
 
-  // Estensione dell'asse: dati e generati insieme, con un margine.
-  let lo = s.min, hi = s.max;
-  if (generati && generati.length){
-    lo = Math.min(lo, ...generati);
-    hi = Math.max(hi, ...generati);
-  }
-  if (hi === lo){ hi = lo + 1; lo -= 1; }
-  const margine = (hi - lo) * 0.04;
-  lo -= margine; hi += margine;
+  // Classi e assi dipendono SOLO dai dati osservati: generare numeri non deve
+  // spostare nulla di ciò che descrive il campione. Quel che dei generati esce
+  // dal grafico viene tagliato e dichiarato sotto, non fatto sparire.
+  let datiDa = s.min, datiA = s.max;
+  if (datiA === datiDa){ datiA = datiDa + 1; datiDa -= 1; }
 
   // Numero di classi: regola di Freedman-Diaconis con ripiego su radice di n.
   const iqr = s.q3 - s.q1;
   const amp = 2 * iqr * Math.pow(s.n, -1 / 3);
-  let nBin = amp > 0 ? Math.ceil((s.max - s.min) / amp) : Math.ceil(Math.sqrt(s.n));
-  nBin = Math.max(5, Math.min(45, nBin || 10));
+  let nBin = amp > 0 ? Math.ceil((datiA - datiDa) / amp) : Math.ceil(Math.sqrt(s.n));
+  nBin = Math.max(5, Math.min(40, nBin || 10));
+  const larghezza = (datiA - datiDa) / nBin;
 
   const bordi = [];
-  for (let i = 0; i <= nBin; i++) bordi.push(lo + (hi - lo) * i / nBin);
-  const densOss = istogramma(s.ordinati, bordi);
-  const densGen = generati && generati.length ? istogramma(generati, bordi) : null;
+  for (let i = 0; i <= nBin; i++) bordi.push(datiDa + i * larghezza);
 
-  // Curva di densità del modello.
-  const PASSI = 220;
+  const margine = (datiA - datiDa) * 0.04;
+  const lo = datiDa - margine, hi = datiA + margine;
+
+  // L'asse verticale conta i valori: piu' leggibile della densita'.
+  const contOss = conteggi(s.ordinati, bordi);   // griglia fissa: non cambia mai
+  // I generati sono riportati alla stessa numerosita' dei dati, altrimenti
+  // chiedere 10.000 numeri schiaccerebbe le barre osservate.
+  const fattore = generati && generati.length ? s.n / generati.length : 1;
+  const contGen = generati && generati.length
+    ? conteggi(generati, bordi).map(c => c * fattore) : null;
+
+  // Curva del modello riportata alla scala dei conteggi.
+  const PASSI = 240;
   const curva = [];
   for (let i = 0; i <= PASSI; i++){
     const v = lo + (hi - lo) * i / PASSI;
-    const d = modello.pdf(v);
+    const d = modello.degenere ? 0 : modello.pdf(v) * s.n * larghezza;
     curva.push([v, isFinite(d) ? d : 0]);
   }
 
-  if (modello.degenere) for (const c of curva) c[1] = 0;
+  // Solo osservati e modello: entrambi stabili finché i dati non cambiano.
+  let yMax = Math.max(...contOss, ...curva.map(c => c[1]));
+  if (!isFinite(yMax) || yMax <= 0) yMax = 1;
 
-  let dMax = Math.max(...densOss, ...curva.map(c => c[1]));
-  if (densGen) dMax = Math.max(dMax, ...densGen);
-  if (!isFinite(dMax) || dMax <= 0) dMax = 1;
-  dMax *= 1.12;
-
+  const tick = ticksTondi(yMax * 1.08, 4, true);
+  const cima = tick[tick.length - 1];
   const sx = scala(lo, hi, x0, x1);
-  const sy = scala(0, dMax, y0, y1);
+  const sy = scala(0, cima, y0, y1);
 
-  let out = '';
+  let out = `<defs><clipPath id="area-grafico"><rect x="${x0}" y="${y1}" width="${(x1 - x0).toFixed(2)}" height="${(y0 - y1).toFixed(2)}"/></clipPath></defs>`;
 
-  // Griglia orizzontale e asse y.
-  for (let i = 0; i <= 4; i++){
-    const v = dMax * i / 4, y = sy(v);
-    out += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" stroke="var(--line-soft)" stroke-width="1"/>`;
-    out += `<text x="${x0 - 8}" y="${y + 3.5}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="var(--mono)">${esc(fmt(v, 3))}</text>`;
+  // Griglia e asse verticale.
+  for (const v of tick){
+    const y = sy(v);
+    out += `<line x1="${x0}" y1="${y.toFixed(2)}" x2="${x1}" y2="${y.toFixed(2)}" stroke="var(--line-soft)" stroke-width="1"/>`;
+    out += `<text x="${x0 - 9}" y="${(y + 3.5).toFixed(2)}" text-anchor="end" font-size="10.5" fill="var(--muted)" font-family="var(--mono)">${v}</text>`;
   }
+  out += `<text transform="rotate(-90 15 ${((y0 + y1) / 2).toFixed(1)})" x="15" y="${((y0 + y1) / 2).toFixed(1)}" text-anchor="middle" font-size="10.5" fill="var(--muted)">valori per classe</text>`;
 
-  // Barre dei dati osservati.
-  for (let i = 0; i < densOss.length; i++){
-    if (densOss[i] <= 0) continue;
-    const bx = sx(bordi[i]), bw = Math.max(sx(bordi[i + 1]) - bx - 1, 0.6);
-    const by = sy(densOss[i]);
-    out += `<rect x="${bx.toFixed(2)}" y="${by.toFixed(2)}" width="${bw.toFixed(2)}" height="${(y0 - by).toFixed(2)}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1" stroke-opacity=".55"/>`;
+  // Barre dei dati osservati: grigio neutro, l'arancione resta al modello.
+  for (let i = 0; i < contOss.length; i++){
+    if (contOss[i] <= 0) continue;
+    const bx = sx(bordi[i]), bw = Math.max(sx(bordi[i + 1]) - bx - 1.5, 0.8);
+    const by = sy(contOss[i]);
+    out += `<rect x="${bx.toFixed(2)}" y="${by.toFixed(2)}" width="${bw.toFixed(2)}" height="${(y0 - by).toFixed(2)}" fill="var(--barra)" rx="1.5"/>`;
   }
 
   // Profilo dei numeri generati, a gradini.
-  if (densGen){
+  if (contGen){
     let p = '';
-    for (let i = 0; i < densGen.length; i++){
-      const a = sx(bordi[i]), b = sx(bordi[i + 1]), y = sy(densGen[i]);
-      p += (i === 0 ? `M${a.toFixed(2)},${y.toFixed(2)}` : `L${a.toFixed(2)},${y.toFixed(2)}`);
-      p += ` L${b.toFixed(2)},${y.toFixed(2)}`;
+    for (let i = 0; i < contGen.length; i++){
+      const b0 = sx(bordi[i]), b1 = sx(bordi[i + 1]), y = sy(contGen[i]);
+      p += (i === 0 ? `M${b0.toFixed(2)},${y.toFixed(2)}` : `L${b0.toFixed(2)},${y.toFixed(2)}`);
+      p += ` L${b1.toFixed(2)},${y.toFixed(2)}`;
     }
-    out += `<path d="${p}" fill="none" stroke="var(--accent2)" stroke-width="1.8" stroke-linejoin="round"/>`;
+    out += `<g clip-path="url(#area-grafico)"><path d="${p}" fill="none" stroke="var(--accent2)" stroke-width="1.6" stroke-linejoin="round" opacity=".9"/></g>`;
   }
 
-  // Curva del modello.
-  let pc = '';
-  for (let i = 0; i < curva.length; i++){
-    const px = sx(curva[i][0]).toFixed(2), py = sy(curva[i][1]).toFixed(2);
-    pc += (i === 0 ? `M${px},${py}` : `L${px},${py}`);
+  // Curva del modello, sopra a tutto.
+  if (!modello.degenere){
+    let pc = '';
+    for (let i = 0; i < curva.length; i++){
+      const px = sx(curva[i][0]).toFixed(2), py = sy(curva[i][1]).toFixed(2);
+      pc += (i === 0 ? `M${px},${py}` : `L${px},${py}`);
+    }
+    out += `<path d="${pc}" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
-  out += `<path d="${pc}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
 
-  // Asse x.
+  // Asse orizzontale con valori tondi.
   out += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y0}" stroke="var(--line)" stroke-width="1"/>`;
   for (let i = 0; i <= 5; i++){
     const v = lo + (hi - lo) * i / 5, x = sx(v);
-    out += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y0 + 4}" stroke="var(--line)" stroke-width="1"/>`;
-    out += `<text x="${x}" y="${y0 + 17}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="var(--mono)">${esc(fmt(v, 2))}</text>`;
+    out += `<line x1="${x.toFixed(2)}" y1="${y0}" x2="${x.toFixed(2)}" y2="${y0 + 4}" stroke="var(--line)" stroke-width="1"/>`;
+    out += `<text x="${x.toFixed(2)}" y="${y0 + 18}" text-anchor="middle" font-size="10.5" fill="var(--muted)" font-family="var(--mono)">${esc(fmt(v, 2))}</text>`;
   }
-  out += `<text x="${(x0 + x1) / 2}" y="${H - 2}" text-anchor="middle" font-size="10" fill="var(--muted)">valore</text>`;
+  out += `<text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10.5" fill="var(--muted)">valore osservato</text>`;
+
+  // Zone sensibili per il passaggio del mouse: intervallo e conteggio della classe.
+  for (let i = 0; i < contOss.length; i++){
+    const bx = sx(bordi[i]), bw = Math.max(sx(bordi[i + 1]) - bx, 0.8);
+    const perc = (contOss[i] / s.n * 100).toFixed(1);
+    const nOss = contOss[i];
+    let etichetta = `da ${fmt(bordi[i], 2)} a ${fmt(bordi[i + 1], 2)}\n${nOss} ${nOss === 1 ? 'valore' : 'valori'} (${perc}%)`;
+    if (contGen) etichetta += `\n${Math.round(contGen[i] / fattore)} generati`;
+    out += `<rect x="${bx.toFixed(2)}" y="${y1}" width="${bw.toFixed(2)}" height="${(y0 - y1).toFixed(2)}" fill="transparent"><title>${esc(etichetta)}</title></rect>`;
+  }
 
   svg.innerHTML = out;
+
+  // Dichiara quanto dei generati resta fuori dal riquadro.
+  const nota = document.getElementById('nota-grafico');
+  if (nota){
+    const avvisi = [];
+    if (generati && generati.length){
+      const fuori = generati.filter(v => v < datiDa || v > datiA).length;
+      if (fuori > 0){
+        avvisi.push(`${(fuori / generati.length * 100).toFixed(1)}% dei numeri generati cade fuori dall'intervallo dei dati osservati e non è disegnato qui: lo vedi nel confronto fra le cumulative.`);
+      }
+      const troppoAlti = contGen ? contGen.filter(c => c > cima).length : 0;
+      if (troppoAlti > 0) avvisi.push(`${troppoAlti} classi dei generati superano la scala verticale.`);
+    }
+    nota.textContent = avvisi.join(' ');
+    nota.classList.toggle('hidden', avvisi.length === 0);
+  }
 }
 
 function disegnaEcdf(svg, ordinatiA, ordinatiB){
@@ -784,17 +862,29 @@ function modelloScelto(){
 function analizza(){
   const letto = leggiValori($('#dati').value);
   const err = $('#errore-dati');
+  const nota = $('#nota-dati');
   err.classList.add('hidden');
+  nota.classList.add('hidden');
 
-  if (letto.errore){
-    err.textContent = letto.errore;
+  if (letto.valori.length < 3){
+    err.textContent = letto.valori.length === 0
+      ? 'Nessun numero riconosciuto nel testo inserito.'
+      : `Servono almeno 3 valori: ne ho letti ${letto.valori.length}.`;
     err.classList.remove('hidden');
     return;
   }
-  if (!letto.valori || letto.valori.length < 3){
-    err.textContent = 'Servono almeno 3 valori numerici.';
-    err.classList.remove('hidden');
-    return;
+
+  // Che cosa è stato ripulito.
+  const avvisi = [];
+  if (letto.scartati.length){
+    avvisi.push('Ignorato: ' + letto.scartati.map(f => '«' + f + '»').join(', ') + '.');
+  }
+  if (letto.attaccati > 0){
+    avvisi.push(`${letto.attaccati} numeri risultano attaccati fra loro: se hai usato il punto come separatore delle migliaia, i valori letti sono sbagliati.`);
+  }
+  if (avvisi.length){
+    nota.textContent = `Letti ${letto.valori.length} valori. ` + avvisi.join(' ');
+    nota.classList.remove('hidden');
   }
 
   stato.dati = letto.valori;
@@ -925,6 +1015,7 @@ $('#btn-pulisci').addEventListener('click', () => {
   $('#vuoto').classList.remove('hidden');
   $('#btn-genera').disabled = true;
   $('#errore-dati').classList.add('hidden');
+  $('#nota-dati').classList.add('hidden');
   stato.generati = null;
 });
 

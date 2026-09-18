@@ -9,7 +9,10 @@ i dati restano nel browser.
 ## Cosa fa
 
 1. **Legge** i valori (separati da a capo, spazi, virgole o punti e virgola; la
-   virgola decimale viene riconosciuta).
+   virgola decimale viene riconosciuta). Tutto ciò che non è un numero — unità di
+   misura, etichette, simboli di valuta — viene scartato, ma non in silenzio:
+   la pagina dichiara che cosa ha ignorato. Incollare `peso: 72,4 kg` per riga
+   funziona.
 2. **Stima** per massima verosimiglianza sei modelli — normale, log-normale,
    gamma, esponenziale, uniforme e una densità empirica (KDE a nucleo gaussiano,
    banda di Silverman). I modelli non applicabili vengono esclusi: niente
@@ -32,8 +35,26 @@ riproduce anche campioni bimodali.
   valore cade nel range dei dati (utile per grandezze con limiti fisici).
 - **Arrotonda a interi** — per conteggi.
 
-Due grafici di controllo: istogramma con la densità stimata (e il profilo dei
-numeri generati sovrapposto) e confronto tra le cumulative empiriche.
+## Come leggere i grafici
+
+Il primo grafico conta **quanti valori cadono in ogni classe**: barre grigie per
+i dati osservati, curva arancione per la forma prevista dal modello, linea verde
+a gradini per i numeri generati. Passando il mouse su una barra compaiono
+l'intervallo della classe, quanti valori contiene e quanti ne sono stati
+generati.
+
+I numeri generati sono riportati alla stessa numerosità dei dati, altrimenti
+chiedere 10.000 valori schiaccerebbe le barre del campione.
+
+**Classi e assi dipendono solo dai dati osservati.** Generare numeri non sposta
+nulla di ciò che descrive il campione: si muove soltanto la linea verde, così da
+poter generare quante volte si vuole confrontando sempre lo stesso riferimento.
+Se una parte dei generati finisce fuori dall'intervallo dei dati, viene tagliata
+dal riquadro e la percentuale è indicata sotto al grafico — la si ritrova per
+intero nel confronto fra le cumulative.
+
+Ogni generazione riparte dai dati originali: i numeri prodotti non rientrano mai
+nel campione di partenza.
 
 ## Pubblicare su GitHub Pages
 
@@ -73,3 +94,6 @@ clic: non ci sono risorse esterne da caricare.
   sotto 0.1 l'adattamento è buono, sopra 0.2 conviene passare alla KDE.
 - Per la KDE la KS è calcolata su un sottoinsieme delle statistiche d'ordine,
   perché la sua cumulativa costa O(n) per ogni valutazione.
+- La ripulitura dell'input non sa distinguere un separatore delle migliaia da un
+  decimale: `1.234.567` viene letto come due numeri. Quando due numeri risultano
+  attaccati la pagina lo segnala, ma il controllo resta a chi incolla i dati.
